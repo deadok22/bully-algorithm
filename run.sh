@@ -9,18 +9,23 @@ do
     NODE_NAMES+=" bully$i@`hostname`"
 done
 
-echo -e "Spawning erlang nodes...\n"
+echo "Spawning erlang nodes..."
 for (( i=0; i<$NODES_COUNT; i++ ))
 do
     erl -pa out/production/bully-algorithm -sname "bully$i" -s coordinator_server start ${NODE_NAMES} -s init stop -noshell &
 done
 
-echo -e "Nodes were spawned. Press any key to exit.\n"
+sleep 1
+
+echo -e "\nErlang nodes have been spawned."
+echo "You can now try to kill a leader, say with \"kill -9 <LEADER_PID>\". Have fun."
+echo "Press any key to exit."
+echo
 read
 
-echo -e "Killing erlang nodes..."
+echo "Killing erlang nodes..."
 
 #warning: this will kill all beam instances
 pkill beam.smp
 
-echo -e "Bye!\n"
+echo "Bye!"
