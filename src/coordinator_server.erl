@@ -20,44 +20,41 @@
 -define(ELECTION_RESPONSE, i_am_alive).
 -define(COORDINATOR_MESSAGE, coordinator).
 
--define(WAIT_FOR_COORDINATOR_TIMEOUT, 1000).
--define(WAIT_FOR_ELECTION_RESPONSE_TIMEOUT, 2000).
+-define(WAIT_FOR_ELECTION_RESPONSE_TIMEOUT, 50).
 
 -record(state, {nodes = [], coordinatorNode = node(), messageLoopTimeout = infinity}).
 
 start(Nodes) ->
-  State = #state{nodes = Nodes},
-  server_loop(start_election(State)).
+  register(?COORDINATOR_SERVER, self()),
+  io:format("Node ~s is running on a vm with PID ~s.~n", [atom_to_list(node()), os:getpid()]),
+  server_loop(start_election(#state{nodes = Nodes})).
 
 server_loop(State) ->
   Coordinator = State#state.coordinatorNode,
+  Timeout = State#state.messageLoopTimeout,
   NewState = receive
-               {?ELECTION_RESPONSE, _Node} -> wait_for_leader(State);
-               {?ELECTION_MESSAGE, Node} -> send_election_response(Node), start_election(State);
+               {?ELECTION_RESPONSE, _Node} -> State#state{messageLoopTimeout = infinity};
+               {?ELECTION_MESSAGE, Node} when Node < node() -> send_election_response(Node), start_election(State);
                {?COORDINATOR_MESSAGE, Node} -> set_coordinator(State, Node);
-               {nodedown, Coordinator} -> start_election(State)
+               {nodedown, Coordinator} -> start_election(State);
+               {nodedown, _} ->
+                 State %% silently consume nodedown messages received due to monitor_node call on node which was dead already
              after
-               ?WAIT_FOR_ELECTION_RESPONSE_TIMEOUT ->
-                 win_election(State)
+               Timeout -> win_election(State)
              end,
   server_loop(NewState).
-
-wait_for_leader(State) ->
-  receive
-    {?COORDINATOR_MESSAGE, Node} -> set_coordinator(State, Node)
-  after
-    ?WAIT_FOR_COORDINATOR_TIMEOUT -> start_election(State)
-  end.
 
 start_election(#state{nodes = Nodes} = State) ->
   lists:foreach(fun send_election_message/1, nodes_with_higher_ids(Nodes)),
   State#state{messageLoopTimeout = ?WAIT_FOR_ELECTION_RESPONSE_TIMEOUT}.
 
 win_election(#state{nodes = Nodes} = State) ->
+  io:format("Node ~s has declared itself a leader.~n", [atom_to_list(node())]),
   lists:foreach(fun send_coordinator_message/1, nodes_with_lower_ids(Nodes)),
   set_coordinator(State, node()).
 
 set_coordinator(State, Coordinator) ->
+  io:format("Node ~p has changed leader from ~p to ~p~n", [node(), State#state.coordinatorNode, Coordinator]),
   monitor_node(State#state.coordinatorNode, false),
   monitor_node(Coordinator, true),
   State#state{coordinatorNode = Coordinator, messageLoopTimeout = infinity}.
